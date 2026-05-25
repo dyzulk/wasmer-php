@@ -52,11 +52,11 @@ jobs:
             --disable-cli \
             --disable-fpm \
             --disable-phpdbg \
-            --disable-fiber-asm \
+            --disable-fibers \
+            --without-libxml \
             --enable-embed \
             --without-iconv \
             --without-pcre-jit \
-            --without-libxml \
             --without-sqlite3 \
             --without-pdo-sqlite \
             LIBS="-lc -lwasi-emulated-signal"
