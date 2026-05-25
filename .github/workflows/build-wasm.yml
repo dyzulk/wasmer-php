@@ -33,6 +33,44 @@ jobs:
           # Fetch the exact PHP 8.4.21 stable release source code
           git clone --depth=1 --branch php-8.4.21 https://github.com/php/php-src.git php-src
           
+      - name: Patch PHP 8.4 Fibers for WASI
+        run: |
+          cd php-src
+          
+          # Bypass the configure.ac error checking for ucontext on WASI
+          sed -i 's/AC_MSG_ERROR(\[fibers not available on this platform\])/AC_MSG_WARN(\[fibers not available on WASI, bypassing...\])/g' configure.ac
+          
+          # Patch zend_fibers.c to stub out context switching
+          cat << 'EOF' > patch_fibers.py
+          import re
+          with open('Zend/zend_fibers.c', 'r') as f:
+              code = f.read()
+          
+          code = re.sub(
+              r'([ \t]*)(context->handle = make_fcontext[^;]+;\n[ \t]*ZEND_ASSERT[^;]+;)',
+              r'\n#if defined(__wasi__)\n\1return false;\n#else\n\1\2\n#endif\n',
+              code,
+              flags=re.DOTALL
+          )
+          
+          code = re.sub(
+              r'([ \t]*)(boost_context_data data = jump_fcontext[^;]+;\n[ \t]*\*transfer = \*data\.transfer;)',
+              r'\n#if defined(__wasi__)\n\1return;\n#else\n\1\2\n#endif\n',
+              code,
+              flags=re.DOTALL
+          )
+          
+          code = re.sub(
+              r'#ifndef ZEND_FIBER_UCONTEXT',
+              r'#if !defined(ZEND_FIBER_UCONTEXT) && !defined(__wasi__)',
+              code
+          )
+          
+          with open('Zend/zend_fibers.c', 'w') as f:
+              f.write(code)
+          EOF
+          python3 patch_fibers.py
+
       - name: Configure and Build PHP
         run: |
           cd php-src
