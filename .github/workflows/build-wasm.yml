@@ -1,25 +1,35 @@
-name: Build PHP 8.4 for Wasmer
+name: Build Modified PHP for Wasmer
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch: # Allows manual triggering from GitHub UI
+  workflow_dispatch:
 
 jobs:
-  build-wasi:
-    name: Build PHP 8.4 WASI
+  build-and-publish:
+    name: Build & Publish PHP ${{ matrix.version }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Menentukan versi spesifik (lengkap dan standar) yang juga 
+        # merupakan nama branch di repositori Anda.
+        version: ['8.4.21', '8.5.0-dev']
 
     steps:
-      - name: Checkout repository
+      # 1. Mengambil kode PHP yang SUDAH DIMODIFIKASI MANUAL dari branch repositori ini
+      - name: Checkout modified PHP source (Branch ${{ matrix.version }})
         uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.version }}
 
+      # 2. Persiapan lingkungan build
       - name: Set up environment
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential autoconf bison re2c pkg-config curl git
 
+      # 3. Download WASI SDK
       - name: Download WASI SDK
         env:
           WASI_SDK_VERSION: 20.0
@@ -28,55 +38,11 @@ jobs:
           curl -L $WASI_SDK_URL | tar -xz -C /opt
           sudo mv /opt/wasi-sdk-20.0 /opt/wasi-sdk
 
-      - name: Download PHP 8.4 Source
-        run: |
-          # Fetch the exact PHP 8.4.21 stable release source code
-          git clone --depth=1 --branch php-8.4.21 https://github.com/php/php-src.git php-src
-          
-      - name: Patch PHP 8.4 Fibers for WASI
-        run: |
-          cd php-src
-          
-          # Bypass the configure.ac error checking for ucontext on WASI
-          sed -i 's/AC_MSG_ERROR(\[fibers not available on this platform\])/AC_MSG_WARN(\[fibers not available on WASI, bypassing...\])/g' configure.ac
-          
-          # Patch zend_fibers.c to stub out context switching
-          cat << 'EOF' > patch_fibers.py
-          import re
-          with open('Zend/zend_fibers.c', 'r') as f:
-              code = f.read()
-          
-          code = re.sub(
-              r'([ \t]*)(context->handle = make_fcontext[^;]+;\n[ \t]*ZEND_ASSERT[^;]+;)',
-              r'\n#if defined(__wasi__)\n\1return false;\n#else\n\1\2\n#endif\n',
-              code,
-              flags=re.DOTALL
-          )
-          
-          code = re.sub(
-              r'([ \t]*)(boost_context_data data = jump_fcontext[^;]+;\n[ \t]*\*transfer = \*data\.transfer;)',
-              r'\n#if defined(__wasi__)\n\1return;\n#else\n\1\2\n#endif\n',
-              code,
-              flags=re.DOTALL
-          )
-          
-          code = re.sub(
-              r'#ifndef ZEND_FIBER_UCONTEXT',
-              r'#if !defined(ZEND_FIBER_UCONTEXT) && !defined(__wasi__)',
-              code
-          )
-          
-          with open('Zend/zend_fibers.c', 'w') as f:
-              f.write(code)
-          EOF
-          python3 patch_fibers.py
-
+      # 4. Konfigurasi & Build (Langsung build karena kode sudah dipatch manual oleh Anda)
       - name: Configure and Build PHP
         run: |
-          cd php-src
           ./buildconf --force
           
-          # Configure WASI target
           export CC="/opt/wasi-sdk/bin/clang"
           export CXX="/opt/wasi-sdk/bin/clang++"
           export LD="/opt/wasi-sdk/bin/wasm-ld"
@@ -87,12 +53,10 @@ jobs:
             --host=wasm32-wasi \
             --disable-all \
             --disable-cgi \
-            --disable-cli \
             --disable-fpm \
             --disable-phpdbg \
             --disable-fibers \
             --without-libxml \
-            --enable-embed \
             --without-iconv \
             --without-pcre-jit \
             --without-sqlite3 \
@@ -101,30 +65,11 @@ jobs:
             
           make -j$(nproc)
           
-          # Move the resulting binary
-          cp libs/libphp.a ../php.wasm || cp sapi/embed/php.wasm ../php.wasm || echo "Check output location"
-          
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: php-8.4-wasm
-          path: php-src/php.wasm # Adjust with the correct output location
+          # Memastikan file php WASM berada di root untuk dibaca oleh wasmer.toml
+          cp sapi/cli/php ./php.wasm || cp sapi/embed/php.wasm ./php.wasm || cp libs/libphp.a ./php.wasm || echo "Check output location"
 
-  publish-wasmer:
-    name: Publish to Wasmer Registry
-    needs: build-wasi
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' # Only publish on the main branch
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: php-8.4-wasm
-          path: .
-
+      # 5. Publikasi ke Wasmer
+      # (wasmer.toml sudah harus berada di dalam branch masing-masing dengan versi yang sesuai)
       - name: Set up Wasmer
         uses: wasmerio/setup-wasmer@v2
 
