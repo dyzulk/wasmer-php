@@ -30,8 +30,8 @@ jobs:
 
       - name: Download PHP 8.4 Source
         run: |
-          # Fetch the latest PHP source code from the master branch (which will become PHP 8.4)
-          git clone --depth=1 --branch master https://github.com/php/php-src.git php-src
+          # Fetch the exact PHP 8.4.21 stable release source code
+          git clone --depth=1 --branch php-8.4.21 https://github.com/php/php-src.git php-src
           
       - name: Configure and Build PHP
         run: |
@@ -52,6 +52,7 @@ jobs:
             --disable-cli \
             --disable-fpm \
             --disable-phpdbg \
+            --disable-fiber-asm \
             --enable-embed \
             --without-iconv \
             --without-pcre-jit \

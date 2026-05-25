@@ -1,6 +1,6 @@
 [package]
 name = "dyzulk/php" # Please change this to your Wasmer username if necessary
-version = "8.4.0-dev"
+version = "8.4.21"
 description = "PHP 8.4 compiled to WebAssembly (WASI)"
 license = "PHP-3.01"
 readme = "README.md"
